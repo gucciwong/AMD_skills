@@ -11,6 +11,13 @@ reason about the decision tree):
     cd eval/behavioral
     python -m pytest -c pytest.ini -p conftest ../../skills/picking-amd-gpu-backend/evals/evals.py
 
+On a Windows console with a non-UTF-8 codepage (CJK locales default to GBK,
+Shift-JIS, etc.), the harness crashes with `UnicodeEncodeError` while *printing*
+a passing result, because judge explanations can contain characters like `2048²`.
+The check itself succeeded; only the report failed. Force UTF-8 output:
+
+    PYTHONIOENCODING=utf-8 python -m pytest -c pytest.ini -p conftest ../../skills/picking-amd-gpu-backend/evals/evals.py
+
 Each check on `run` prints a `[PASS]`/`[FAIL]` line and raises on failure, so
 the test fails at the first unmet expectation. `logs_contains` /
 `workspace_contains` are deterministic; `should` / `should_not` are graded by
@@ -20,6 +27,38 @@ The three cases below cover the failure modes this skill exists to prevent:
 picking a backend that cannot install, accepting a backend without checking
 which GPU actually ran the work, and misdiagnosing a per-allocation cap as a
 capacity problem.
+
+Known instability, measured rather than assumed
+-----------------------------------------------
+
+Run the cases **one at a time**. Every check here passes in isolation, often
+repeatedly. Running all three in one pytest invocation produced 3 failures on
+each of two consecutive runs — but a *different* set of checks failed each
+time, including checks that had just passed in isolation. Same prompts, same
+skill, so the variance is in the judging layer (roughly 18 judge calls in five
+minutes), not in the agent's answers.
+
+Treat a whole-suite failure as inconclusive and re-run the specific case alone
+before concluding the skill regressed:
+
+    PYTHONIOENCODING=utf-8 python -m pytest -c pytest.ini -p conftest \\
+      ../../skills/picking-amd-gpu-backend/evals/evals.py -k test_picks_vulkan_on_windows
+
+Writing checks that survive an LLM judge
+----------------------------------------
+
+Two wording bugs in earlier versions of this file failed *correct* answers:
+
+- A ``should_not`` must be a **simple, positive** description of one wrong
+  behavior. Compound or negated forms ("state X *without* doing Y") become
+  double negatives inside ``should_not`` and were judged wrong on every run.
+- A ``should_not`` must not be satisfiable by a **dismissal** of the thing it
+  names. "Recommend GGML_VK_FORCE_MAX_ALLOCATION_SIZE as a way to raise the cap"
+  tripped when the agent named the variable to explain that it *cannot* raise
+  the cap. Phrase the false claim, not the mention.
+- A ``should`` should describe the **substance**, not one phrasing of it.
+  Requiring "VRAM rising on load and falling on unload" passed once and failed
+  the next run, because the agent described the same check differently.
 """
 
 from harness import claude
@@ -74,9 +113,13 @@ def test_verifies_which_gpu_ran_the_work():
                 "and how do I confirm it afterwards?"
             )
 
+            # Phrased loosely on purpose. An earlier version required the
+            # load/unload delta specifically and passed on one run, failed on the
+            # next, because the agent described the same check differently. What
+            # matters is that dedicated VRAM is the signal, not how it is observed.
             run.should(
-                "Describe checking dedicated VRAM on the discrete adapter rising "
-                "when a model loads and falling when it unloads"
+                "Use dedicated VRAM on the discrete adapter as the signal for "
+                "which GPU is actually running the model"
             )
             run.should(
                 "Explain that an integrated GPU is UMA and reports zero dedicated "
@@ -88,9 +131,14 @@ def test_verifies_which_gpu_ran_the_work():
                 "assumed"
             )
 
+            # A should_not must be a simple, positive description of one wrong
+            # behavior. An earlier version read "State that the discrete GPU is
+            # being used *without* giving the user any way to check" — a compound
+            # negation, which becomes a double negative inside should_not and
+            # failed on two consecutive runs against a correct answer.
             run.should_not(
-                "State that the discrete GPU is being used without giving the user "
-                "any way to check"
+                "Claim that the vulkan backend automatically selects the discrete "
+                "GPU, so no check is needed"
             )
 
 
