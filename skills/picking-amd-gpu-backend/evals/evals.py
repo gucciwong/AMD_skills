@@ -57,14 +57,21 @@ def test_picks_vulkan_on_windows():
 
 
 def test_verifies_which_gpu_ran_the_work():
-    """A backend that 'works' may still be running on the integrated GPU."""
+    """A backend that 'works' may still be running on the integrated GPU.
+
+    The prompt asks both how to *target* the discrete card and how to *confirm*
+    it afterwards. Asking only about confirmation does not reliably elicit the
+    device-ordering warning, which made an earlier version of this test fail on
+    a correct answer.
+    """
     agent_configs = [(claude, "opus")]
     for agent, model in agent_configs:
         with agent(model, skill="picking-amd-gpu-backend") as agent:
             run = agent.prompt(
                 "I installed the vulkan backend on a laptop that has both an "
                 "integrated GPU and a discrete Radeon. Generation works but feels "
-                "slow. How do I confirm it is actually using the discrete card?"
+                "slow. How do I make sure the discrete card is the one being used, "
+                "and how do I confirm it afterwards?"
             )
 
             run.should(
@@ -76,18 +83,27 @@ def test_verifies_which_gpu_ran_the_work():
                 "memory, so it can be told apart from the discrete card"
             )
             run.should(
-                "Warn that device index 0 is often the integrated GPU rather than "
-                "the discrete one"
+                "Point out that the first enumerated device is not necessarily the "
+                "discrete GPU, so the device list should be inspected rather than "
+                "assumed"
             )
 
             run.should_not(
-                "Assume the discrete GPU is being used without proposing a way to "
-                "verify it"
+                "State that the discrete GPU is being used without giving the user "
+                "any way to check"
             )
 
 
 def test_diagnoses_allocation_cap_not_capacity():
-    """The error names a byte count, not a concept; the wrong fix wastes hours."""
+    """The error names a byte count, not a concept; the wrong fix wastes hours.
+
+    The negative expectations below are phrased as the *false claim* rather than
+    the mention. An earlier version said "Recommend GGML_VK_FORCE_MAX_ALLOCATION_SIZE
+    as a way to raise the cap", which the judge marked as observed simply because
+    the agent named the variable while explaining that it cannot raise the cap —
+    failing a correct answer. A `should_not` must not be satisfiable by a
+    dismissal of the thing it names.
+    """
     agent_configs = [(claude, "opus")]
     for agent, model in agent_configs:
         with agent(model, skill="picking-amd-gpu-backend") as agent:
@@ -110,11 +126,14 @@ def test_diagnoses_allocation_cap_not_capacity():
             )
 
             run.should_not(
-                "Recommend enable_dgpu_gtt to make more memory available"
+                "Tell the user that enabling enable_dgpu_gtt will make the "
+                "3072x3072 generation succeed"
             )
             run.should_not(
-                "Recommend GGML_VK_FORCE_MAX_ALLOCATION_SIZE as a way to raise the cap"
+                "Tell the user that setting GGML_VK_FORCE_MAX_ALLOCATION_SIZE will "
+                "let them exceed the 5 GiB allocation limit"
             )
             run.should_not(
-                "Suggest that a quantized model will raise the resolution ceiling"
+                "Tell the user that switching to a smaller or quantized model will "
+                "make the 3072x3072 generation succeed"
             )
