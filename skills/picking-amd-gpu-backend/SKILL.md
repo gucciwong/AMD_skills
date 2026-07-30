@@ -57,17 +57,24 @@ No GPU detected, or GPU unsupported?
 > have nothing to do with the GPU), are at
 > <https://github.com/gucciwong/amd-local-ai-bench/blob/main/docs/rocm-on-wsl2.md>.
 >
-> **This "WSL2 ROCm works" finding is inference-only — it does not extend to
-> PyTorch training.** A ROCm nightly PyTorch install on the same WSL2 setup
-> got `torch.cuda.is_available() == False`, because WSL2 exposes only
-> `/dev/dxg` — there is no `/dev/kfd` device node and no `/sys/class/kfd`
-> sysfs tree at all, and PyTorch's HIP runtime hard-requires that path just
-> to enumerate the device, before training (or any hipBLASLt kernel gap)
-> ever enters the picture. llama.cpp/stable-diffusion.cpp's HIP backends
-> don't hit this because they don't touch that code path. If a user wants to
-> train/fine-tune (e.g. via Unsloth's new AMD support) on this GPU on
-> Windows, tell them WSL2 is currently a dead end for that specific goal —
-> see
+> **Correction to an earlier version of this note: PyTorch training on WSL2
+> ROCm does work, it just needs one non-obvious fix.** A ROCm nightly PyTorch
+> install on this same WSL2 setup initially got `torch.cuda.is_available() ==
+> False` (WSL2 exposes only `/dev/dxg`, no `/dev/kfd`/`/sys/class/kfd`), and
+> an earlier version of this note called that a dead end. It wasn't: the pip
+> wheel bundles its own Linux-only `libhsa-runtime64.so`, which shadows the
+> system ROCm's copy — and the system copy (from `amdrocm-wsl`) is already
+> linked against AMD's WSL bridge, `librocdxg.so`. Deleting the wheel's
+> bundled `torch/lib/libhsa-runtime64.so*` (and the same file under
+> `triton/backends/amd/lib/`) so the loader falls through to the system
+> library flips `is_available()` to `True`. Verified with real training, not
+> just device enumeration: a 4096-dim MLP and an fp16-autocast pass both
+> converged correctly (loss decreasing, GPU-vs-CPU matmul results matching)
+> on the same Radeon RX 7600M XT (gfx1102). If a user wants to train/fine-tune
+> on this GPU on Windows (e.g. via Unsloth's new AMD support), WSL2 is a live
+> option — point them at this fix first, not at giving up on WSL2. Full
+> writeup, including the wrong "dead end" conclusion this replaces and why it
+> was wrong, is at
 > <https://github.com/gucciwong/amd-local-ai-bench/blob/main/docs/training-methodologies.md>.
 >
 > Bare-metal Linux (no WSL) follows upstream documentation only — no one has
