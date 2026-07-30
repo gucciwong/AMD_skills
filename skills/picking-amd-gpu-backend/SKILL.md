@@ -57,6 +57,19 @@ No GPU detected, or GPU unsupported?
 > have nothing to do with the GPU), are at
 > <https://github.com/gucciwong/amd-local-ai-bench/blob/main/docs/rocm-on-wsl2.md>.
 >
+> **This "WSL2 ROCm works" finding is inference-only — it does not extend to
+> PyTorch training.** A ROCm nightly PyTorch install on the same WSL2 setup
+> got `torch.cuda.is_available() == False`, because WSL2 exposes only
+> `/dev/dxg` — there is no `/dev/kfd` device node and no `/sys/class/kfd`
+> sysfs tree at all, and PyTorch's HIP runtime hard-requires that path just
+> to enumerate the device, before training (or any hipBLASLt kernel gap)
+> ever enters the picture. llama.cpp/stable-diffusion.cpp's HIP backends
+> don't hit this because they don't touch that code path. If a user wants to
+> train/fine-tune (e.g. via Unsloth's new AMD support) on this GPU on
+> Windows, tell them WSL2 is currently a dead end for that specific goal —
+> see
+> <https://github.com/gucciwong/amd-local-ai-bench/blob/main/docs/training-methodologies.md>.
+>
 > Bare-metal Linux (no WSL) follows upstream documentation only — no one has
 > run this skill's guidance on real bare-metal Linux. Say so when recommending
 > it there, and prefer vulkan as the fallback the moment anything fails rather
