@@ -74,16 +74,21 @@ No GPU detected, or GPU unsupported?
 > on this GPU on Windows (e.g. via Unsloth's new AMD support), WSL2 is a live
 > option — point them at this fix first, not at giving up on WSL2.
 >
-> **Unsloth's AMD support is now verified working on this exact GPU, not just
-> theoretically compatible** — a real QLoRA fine-tune (Llama-3.2-1B, 4-bit,
-> 20 steps) converged (loss 4.84 → 0.84) at 1.33 GB peak VRAM, on the WSL2
-> setup above. One extra footgun along the way: `pip install unsloth[amd]`
-> silently replaces the already-fixed ROCm torch with a plain PyPI CUDA build
-> (`torch-2.11.0+cu130`, pulling in `nvidia-*` packages on a machine with no
-> NVIDIA GPU at all) — `torch.cuda.is_available()` goes back to `False` with
-> no error. Fix: reinstall torch from the ROCm index at the version range
-> Unsloth's own docs specify, then redo the `libhsa-runtime64.so` deletion
-> (a fresh torch install brings back its own bundled copy every time).
+> **Unsloth's AMD support is now verified working on this exact GPU at three
+> model scales, not just theoretically compatible** — real QLoRA fine-tunes
+> converged at each: Llama-3.2-1B (1.33 GB peak VRAM), Qwen3-4B (3.89 GB),
+> and Qwen3-8B (7.83 GB — on an 8176 MiB card, ~345 MB of headroom left, no
+> OOM). Those numbers land almost exactly on AMD's own published targets for
+> this hardware tier (`amd/gaia#667`: "~4GB" and "~8GB, right at the ceiling"
+> for the same two model sizes) — this is the first independent confirmation
+> of those targets on real gfx1102 hardware. One extra footgun along the way:
+> `pip install unsloth[amd]` silently replaces the already-fixed ROCm torch
+> with a plain PyPI CUDA build (`torch-2.11.0+cu130`, pulling in `nvidia-*`
+> packages on a machine with no NVIDIA GPU at all) — `torch.cuda.is_available()`
+> goes back to `False` with no error. Fix: reinstall torch from the ROCm index
+> at the version range Unsloth's own docs specify, then redo the
+> `libhsa-runtime64.so` deletion (a fresh torch install brings back its own
+> bundled copy every time).
 >
 > By contrast, a from-scratch fair comparison against `torch-directml`
 > (native Windows, no fix needed to install) using plain `transformers`+`peft`
@@ -93,9 +98,15 @@ No GPU detected, or GPU unsupported?
 > regardless of precision or attention implementation:
 > `RuntimeError: value cannot be converted to type uint8_t without overflow`,
 > inside `transformers`' causal-mask preparation (`masked_fill`). Tried fp16,
-> fp32, and `attn_implementation="eager"` — identical error each time. Don't
-> assume `torch-directml`'s easier install means it's the safer bet for real
-> model training on this GPU today.
+> fp32, and `attn_implementation="eager"` — identical error each time. This is
+> a known, permanently-closed issue —
+> [microsoft/DirectML#702](https://github.com/microsoft/DirectML/issues/702),
+> closed `not_planned` ("DirectML is in maintenance mode"), independently
+> corroborated on a different model and GPU in a
+> [Gemma-3-1b-it HF discussion](https://huggingface.co/google/gemma-3-1b-it/discussions/19)
+> — so it isn't specific to Llama or this card, and there's no fix coming.
+> Don't assume `torch-directml`'s easier install means it's the safer bet for
+> real model training on this GPU today.
 >
 > Full writeup, including the wrong "dead end" conclusion this replaces and
 > why it was wrong, is at
