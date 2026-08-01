@@ -114,13 +114,41 @@ No GPU detected, or GPU unsupported?
 > **The issue's own suggested workaround (replace `masked_fill` with an
 > equivalent `torch.where` call) was tested directly** — monkey-patched
 > `LlamaModel._prepare_4d_causal_attention_mask_with_cache_position` and
-> reran the same training. The crash genuinely disappears. But training then
-> produces `loss=nan` from step 0 onward, every step — the workaround only
-> removes the symptom that makes the program stop; there's a deeper numerical
-> problem underneath it that a crash was actually masking. Don't tell a user
-> "patch this and it's fixed" — it silences the error without producing a
-> model that actually trains. Don't assume `torch-directml`'s easier install
-> means it's the safer bet for real model training on this GPU today.
+> reran the same training. The crash genuinely disappears, but training then
+> produces `loss=nan` from step 0 onward — the workaround only removes the
+> symptom that makes the program stop; there's a deeper problem underneath.
+>
+> **That deeper problem was traced to its actual root, and it's neither
+> `masked_fill` nor `torch.where`.** Per-module forward hooks pinpointed the
+> first NaN at layer 0's `self_attn.o_proj` output — meaning attention itself
+> already produced NaN. `transformers` has a safety call,
+> `AttentionMaskConverter._unmask_unattended`, specifically to prevent NaN
+> from fully-masked attention rows, but it's gated by
+> `attention_mask.device.type in ["cuda", "xpu"]` — DirectML's device type is
+> `"privateuseone"`, so that safety net is silently skipped. Adding the call
+> unconditionally threw a new error — `causal_mask` was already a
+> `BoolTensor` by that point, not float. Tracing that back further: original
+> (unpatched) `transformers` code does `causal_mask *= (bool comparison
+> tensor)`, an in-place `float *= bool`. A minimal isolated repro confirms
+> **DirectML's multiply kernel does not follow standard type promotion for
+> `float * bool`** (true for both in-place and out-of-place) — it silently
+> degrades the *entire result* to bool dtype, discarding the float values.
+> That's the true, single root cause: it corrupts `causal_mask` before
+> `masked_fill` ever runs, explaining both the original crash and the NaN
+> that survived `torch.where`.
+>
+> **The real fix is simpler than the community workaround and doesn't touch
+> `masked_fill` at all**: cast the bool comparison to the mask's dtype before
+> multiplying (`keep_mask = (arange > cache_position).to(dtype)`, then
+> `causal_mask = causal_mask * keep_mask`). With only that change — original
+> `masked_fill` unchanged — training ran 15 clean steps, loss 4.04 → 1.26, no
+> crash, no NaN. This is more precise than
+> [microsoft/DirectML#702](https://github.com/microsoft/DirectML/issues/702)'s
+> own suggested fix, which only addresses the downstream symptom. Don't tell
+> a user "patch this and it's fixed" for the `torch.where` workaround alone —
+> it silences the crash without producing a model that actually trains. Don't
+> assume `torch-directml`'s easier install means it's the safer bet for real
+> model training on this GPU today.
 >
 > Full writeup, including the wrong "dead end" conclusion this replaces and
 > why it was wrong, is at
