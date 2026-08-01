@@ -88,7 +88,13 @@ No GPU detected, or GPU unsupported?
 > goes back to `False` with no error. Fix: reinstall torch from the ROCm index
 > at the version range Unsloth's own docs specify, then redo the
 > `libhsa-runtime64.so` deletion (a fresh torch install brings back its own
-> bundled copy every time).
+> bundled copy every time). This was also checked against a false-positive
+> risk: loss decreasing alone doesn't rule out "the base model already knew
+> this" — so the real verification used facts the model can't have seen in
+> pretraining (invented place names, currencies, a flag color). Before
+> fine-tuning it correctly said it didn't know any of them; after 60 steps
+> on 4 such facts it recalled all 4 verbatim. That's real evidence of
+> learning, not a loss-curve artifact.
 >
 > By contrast, a from-scratch fair comparison against `torch-directml`
 > (native Windows, no fix needed to install) using plain `transformers`+`peft`
@@ -105,8 +111,16 @@ No GPU detected, or GPU unsupported?
 > corroborated on a different model and GPU in a
 > [Gemma-3-1b-it HF discussion](https://huggingface.co/google/gemma-3-1b-it/discussions/19)
 > — so it isn't specific to Llama or this card, and there's no fix coming.
-> Don't assume `torch-directml`'s easier install means it's the safer bet for
-> real model training on this GPU today.
+> **The issue's own suggested workaround (replace `masked_fill` with an
+> equivalent `torch.where` call) was tested directly** — monkey-patched
+> `LlamaModel._prepare_4d_causal_attention_mask_with_cache_position` and
+> reran the same training. The crash genuinely disappears. But training then
+> produces `loss=nan` from step 0 onward, every step — the workaround only
+> removes the symptom that makes the program stop; there's a deeper numerical
+> problem underneath it that a crash was actually masking. Don't tell a user
+> "patch this and it's fixed" — it silences the error without producing a
+> model that actually trains. Don't assume `torch-directml`'s easier install
+> means it's the safer bet for real model training on this GPU today.
 >
 > Full writeup, including the wrong "dead end" conclusion this replaces and
 > why it was wrong, is at
