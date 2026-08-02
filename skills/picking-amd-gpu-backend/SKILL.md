@@ -148,7 +148,9 @@ No GPU detected, or GPU unsupported?
 > a user "patch this and it's fixed" for the `torch.where` workaround alone —
 > it silences the crash without producing a model that actually trains. Don't
 > assume `torch-directml`'s easier install means it's the safer bet for real
-> model training on this GPU today.
+> model training on this GPU today. Filed the type-promotion root cause
+> upstream as [microsoft/DirectML#737](https://github.com/microsoft/DirectML/issues/737)
+> and cross-linked it from #702 — neither has a maintainer response yet.
 >
 > Full writeup, including the wrong "dead end" conclusion this replaces and
 > why it was wrong, is at
